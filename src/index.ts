@@ -1,25 +1,4 @@
-/**
- * Aave Protocol Event Indexer and Metrics Calculator
- * 
- * This module serves as the core event processing and metrics calculation engine for the Aave Protocol.
- * It handles the following key responsibilities:
- * 
- * 1. Initial Sync:
- *    - Takes an array of user addresses and fetches important metrics for the users
- *    using the getUserAccountData function from the Aave pool contract
- *    - Stores in PostgreSQL database
- * 
- * 2. Event Processing:
- *    - After initial sync, indexes and processes various protocol events
- *      (Supply, Withdraw, Borrow, Repay, LiquidationCall)
- *    - Stores event data in PostgreSQL database with detailed transaction information
- *    - Maintains user address mappings and relationships
- * 
- * 3. Position Tracking:
- *    - Uses getUserAccountData to get real-time user positions
- *    - Tracks total collateral, total debt, and other metrics
- *    - Computes health factors and borrowing limits
- */
+
 
 import { ponder } from "ponder:registry";
 import { SupplyEvent, WithdrawEvent, BorrowEvent, RepayEvent, LiquidationCallEvent } from "./types/types";
@@ -39,15 +18,7 @@ function getAddressesFromFile(filePath: string): `0x${string}`[] {
     .filter(address => address);
 }
 
-/**
- * Sets up event handlers for the Aave pool contract
- * 
- * This function:
- * 1. Fetches metrics for all users in `userAddresses` once at the start using getUserAccountData
- * 2. Registers event handlers for the pool contract
- * 3. Processes different event types (Supply, Withdraw, Borrow, Repay, LiquidationCall)
- * 4. Standardizes event data and stores it in the database
- */
+
 export function setupEventHandlers() {
   const userAddresses = getAddressesFromFile('./logs/unique_addresses1.txt');
   console.log(`Setting up event handlers for Aave pool contract with ${userAddresses.length} addresses`);

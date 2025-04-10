@@ -61,7 +61,7 @@ export const TOKENS: TokenConfig[] = [
     symbol: "LBTC"
   },
   {
-    address: "0x60a3E35Cc302bFA44Cb288Bc5aF316Fdb1adb42",
+    address: "0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1adb42",
     decimals: 6,
     symbol: "EURC"
   },

@@ -4,7 +4,7 @@ import { http } from "viem";
 import { ComptrollerAbi } from "./abis/Comptroller";
 import { MTokenAbi } from "./abis/MToken";
 import { AavePoolABI } from "./abis/Aave_pool";
-import { TOKENS } from "./src/tokens";
+import { TOKENS } from "./src/config/tokens";
 
 // Contract addresses
 const COMPTROLLER_ADDRESS = "0xfBb21d0380beE3312B33c4353c8936a0F13EF26C";

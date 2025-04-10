@@ -1,39 +1,20 @@
 import { userAddresses, userMetrics, userTransactions } from "ponder:schema";
 import { IndexedEvent, TokenData } from "../types/types";
-import { Context } from "ponder:registry";
-import { MTokenAbi } from "../../abis/MToken";
-import { erc20Abi } from "viem";
-import { ComptrollerAbi } from "../../abis/Comptroller";
+
 import { AavePoolABI } from "../../abis/Aave_pool";
+import { uiPoolDataProviderAbi } from "../../abis/uiPoolDataProvider";
+import { TOKENS } from "../config/tokens"; // Import token configuration
 
-const COMPTROLLER_ADDRESS = "0xfBb21d0380beE3312B33c4353c8936a0F13EF26C";
 const AAVE_POOL_ADDRESS = "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5";
+const UI_POOL_DATA_PROVIDER = "0x68100bD5345eA474D93577127C11F39FF8463e93";
+const POOL_ADDRESSES_PROVIDER = "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D";
 
-/**
- * Core event processing function that handles database operations
- * 
- * This function performs several critical operations:
- * 
- * 1. Transaction Storage:
- *    - Generates unique event IDs using transaction hash and log index
- *    - Stores complete transaction details including amounts and timestamps
- *    - Handles both primary and related addresses (e.g., payer in RepayBorrow events)
- * 
- * 2. User Address Management:
- *    - Maintains a mapping of user addresses to their associated tokens
- *    - Handles address conflicts using onConflictDoNothing
- *    - Tracks relationships between different addresses in complex events
- * 
- * 3. Error Handling:
- *    - Implements comprehensive error catching and logging
- *    - Provides detailed error context for debugging
- *    - Maintains transaction integrity through error recovery
- * 
- * 4. Logging:
- *    - Provides detailed logging for monitoring and debugging
- *    - Tracks successful operations and failures
- *    - Includes relevant context in log messages
- */
+// Helper function to get token decimals by address
+function getTokenDecimals(tokenAddress: string): number {
+  const token = TOKENS.find(t => t.address.toLowerCase() === tokenAddress.toLowerCase());
+  return token ? token.decimals : 18; // Default to 18 if not found
+}
+
 export async function storeEvent(context: any, event: IndexedEvent) {
   try {
     const id = `${event.transactionHash}-${event.logIndex}`;
@@ -96,133 +77,6 @@ export async function storeEvent(context: any, event: IndexedEvent) {
   }
 }
 
-/**
- * Fetches and calculates comprehensive token data for a specific user
- * 
- * This function performs several complex calculations:
- * 
- * 1. Account Snapshot:
- *    - Retrieves current token balance and borrow balance
- *    - Calculates exchange rate for the token
- *    - Handles error codes from the protocol
- * 
- * 2. Collateral Calculations:
- *    - Fetches market listing status and collateral factor
- *    - Determines if the token can be used as collateral
- *    - Calculates collateral value in USD
- * 
- * 3. Price Oracle Integration:
- *    - Retrieves token prices from the protocol's oracle
- *    - Handles different decimal places for price calculations
- *    - Converts token amounts to USD values
- * 
- * 4. Token-Specific Handling:
- *    - Manages different decimal places across tokens
- *    - Handles native and wrapped token variations
- *    - Provides fallback values for edge cases
- * 
- * Returns null if the token is not available or if there are errors
- */
-export async function fetchSingleTokenData(
-  context: any,
-  user: `0x${string}`,
-  token: { symbol: string; address: `0x${string}` }
-): Promise<TokenData | null> {
-  const client = context.client;
-  const tokenAddress = token.address;
-
-  try {
-    // 1) getAccountSnapshot
-    const [errorCode, tokenBalance, borrowBalance, exchangeRate] = await client.readContract({
-      address: tokenAddress,
-      abi: MTokenAbi,
-      functionName: "getAccountSnapshot",
-      args: [user],
-    });
-    if (errorCode !== 0n) return null;
-
-    // 2) compute supplied in underlying
-    const suppliedUnderlying = Number(tokenBalance * exchangeRate) / 1e18;
-
-    // 3) get collateral factor
-    const [isListed, collateralFactorMantissa] = await client.readContract({
-      address: COMPTROLLER_ADDRESS,
-      abi: ComptrollerAbi,
-      functionName: "markets",
-      args: [tokenAddress],
-    });
-    const isCollateralEnabled = isListed;
-    const collateralFactor = isCollateralEnabled ? collateralFactorMantissa : BigInt(0);
-
-    // 4) get price from Oracle
-    const oracleAddress = await client.readContract({
-      address: COMPTROLLER_ADDRESS,
-      abi: ComptrollerAbi,
-      functionName: "oracle",
-    });
-    let price = 0n;
-    if (oracleAddress) {
-      price = await client.readContract({
-        abi: [
-          {
-            "type": "function",
-            "name": "getUnderlyingPrice",
-            "stateMutability": "view",
-            "inputs": [{ "internalType": "address", "name": "mToken", "type": "address" }],
-            "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }]
-          }
-        ],
-        address: oracleAddress as `0x${string}`,
-        functionName: "getUnderlyingPrice",
-        args: [tokenAddress],
-      });
-    }
-
-    // 5) get underlying decimals
-    let underlyingDecimals = 18n; // default
-    try {
-      const underlyingAddress = await client.readContract({
-        address: tokenAddress,
-        abi: MTokenAbi,
-        functionName: "underlying",
-      });
-      const decimals = await client.readContract({
-        address: underlyingAddress,
-        abi: erc20Abi,
-        functionName: "decimals",
-      });
-      underlyingDecimals = BigInt(decimals);
-    } catch (e) {
-      // if this is a native MToken, use default 18 decimals
-    }
-
-    // 6) convert to USD
-    const priceInUSD = Number(price) / (10 ** (36 - Number(underlyingDecimals)));
-    const suppliedUSD = Number(suppliedUnderlying) * priceInUSD / (10 ** Number(underlyingDecimals));
-    const borrowedUSD = Number(borrowBalance) * priceInUSD / (10 ** Number(underlyingDecimals));
-
-    // 7) compute "collateralFactor * supplied (in USD)"
-    const collateralFactorUSD = suppliedUSD * Number(collateralFactor) / 1e18;
-
-    // 8) Return array with all values as floats rounded to 4 decimal places
-    return [
-      suppliedUSD.toFixed(4),
-      borrowedUSD.toFixed(4),
-      (Number(collateralFactor) / 1e18).toFixed(4),
-      collateralFactorUSD.toFixed(4),
-      priceInUSD.toFixed(4)
-    ];
-  } catch (e) {
-    console.error(`Error fetching token data for user ${user} token ${token.symbol}:`, e);
-    return null;
-  }
-}
-
-/**
- * Updates user metrics using the Aave pool's getUserAccountData function
- * This function fetches the user's current position data from the Aave pool contract
- * and updates the database with the latest metrics.
- */
 export async function updateUserMetrics(context: any, user: `0x${string}`) {
   try {
     const { client, db } = context;
@@ -234,6 +88,9 @@ export async function updateUserMetrics(context: any, user: `0x${string}`) {
       functionName: "getUserAccountData",
       args: [user]
     });
+
+    // Fetch and log user reserves data with prices
+    await fetchUserReservesDataWithPrices(context, user);
 
     // Update user metrics in the database
     await db.insert(userMetrics)
@@ -261,5 +118,85 @@ export async function updateUserMetrics(context: any, user: `0x${string}`) {
     console.log(`[DB] Successfully updated metrics for user ${user} with total collateral ${Number(totalCollateralBase)/1e8} and total debt ${Number(totalDebtBase)/1e8}`);
   } catch (error) {
     console.error(`[DB ERROR] Failed to update metrics for user ${user}:`, error);
+  }
+}
+
+export async function fetchUserReservesDataWithPrices(context: any, user: `0x${string}`) {
+  const { client } = context;
+
+  try {
+    // Fetch general reserve data (including prices and decimals)
+    const [reservesData] = await client.readContract({
+      address: UI_POOL_DATA_PROVIDER,
+      abi: uiPoolDataProviderAbi,
+      functionName: "getReservesData",
+      args: [POOL_ADDRESSES_PROVIDER]
+    });
+
+    // Create a map for quick lookup of price and decimals by underlying asset
+    const reserveInfoMap = new Map<string, { price: bigint, decimals: number }>();
+    reservesData.forEach((reserve: any) => {
+      reserveInfoMap.set(reserve.underlyingAsset.toLowerCase(), {
+        price: reserve.priceInMarketReferenceCurrency, // Price has 8 decimals
+        decimals: Number(reserve.decimals)
+      });
+    });
+
+    // Fetch user-specific reserve data
+    const [userReservesData] = await client.readContract({
+      address: UI_POOL_DATA_PROVIDER,
+      abi: uiPoolDataProviderAbi,
+      functionName: "getUserReservesData",
+      args: [POOL_ADDRESSES_PROVIDER, user]
+    });
+
+    console.log(`--- User Reserves for ${user} ---`);
+    userReservesData.forEach((reserve: any) => {
+      const scaledATokenBalance = BigInt(reserve.scaledATokenBalance);
+      const scaledVariableDebt = BigInt(reserve.scaledVariableDebt);
+
+      // Condition: Log only if balance or debt is non-zero
+      if (scaledATokenBalance === 0n && scaledVariableDebt === 0n) {
+        return; // Skip this token if both balances are zero
+      }
+
+      const tokenAddress = reserve.underlyingAsset.toLowerCase();
+      const info = reserveInfoMap.get(tokenAddress);
+      // Find token symbol from TOKENS config
+      const tokenConfig = TOKENS.find(t => t.address.toLowerCase() === tokenAddress);
+      const tokenSymbol = tokenConfig ? tokenConfig.symbol : 'UNKNOWN'; // Get symbol or default
+
+      if (!info) {
+        console.log(`Warning: Could not find reserve info for token ${tokenSymbol} (${tokenAddress})`);
+        return;
+      }
+
+      const decimals = info.decimals;
+      const price = Number(info.price) / 1e8; // Adjust price from 8 decimals
+      let divisor = 1e18;
+
+      if (decimals === 6) {
+        divisor = 1e6;
+      } else if (decimals === 8) {
+        divisor = 1e8;
+      }
+
+      const actualATokenBalance = Number(scaledATokenBalance) / divisor;
+      const actualVariableDebt = Number(scaledVariableDebt) / divisor;
+
+      const balanceUSD = actualATokenBalance * price;
+      const debtUSD = actualVariableDebt * price;
+
+      console.log(`Token: ${tokenSymbol} (${reserve.underlyingAsset})`);
+      console.log(`  Actual AToken Balance: ${actualATokenBalance.toFixed(6)}`);
+      console.log(`  Collateral in USD: ${balanceUSD.toFixed(2)}`);
+      console.log(`  Usage as Collateral: ${reserve.usageAsCollateralEnabledOnUser}`);
+      console.log(`  Actual Variable Debt: ${actualVariableDebt.toFixed(6)}`);
+      console.log(`  Debt USD: ${debtUSD.toFixed(2)}`);
+      console.log('---');
+    });
+
+  } catch (error) {
+    console.error(`Error fetching user reserves data with prices for user ${user}:`, error);
   }
 }
