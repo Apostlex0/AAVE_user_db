@@ -9,7 +9,7 @@ import { TOKENS } from "./src/config/tokens";
 // Contract addresses
 const COMPTROLLER_ADDRESS = "0xfBb21d0380beE3312B33c4353c8936a0F13EF26C";
 const AAVE_POOL_ADDRESS = "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5";
-const START_BLOCK = 28676994; // Adjust as needed
+const START_BLOCK = 28754254; // Adjust as needed
 
 // Define the type for contract configuration
 type ContractConfig = {

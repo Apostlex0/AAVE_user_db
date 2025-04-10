@@ -73,7 +73,7 @@ app.get('/api/market/:mTokenAddress', async (c) => {
 
 // Start the server if not in a test environment
 if (process.env.NODE_ENV !== 'test') {
-  const port = process.env.PORT || 3002;
+  const port = process.env.PORT || 3010;
   console.log(`API server starting on port ${port}`);
   serve({
     fetch: app.fetch,

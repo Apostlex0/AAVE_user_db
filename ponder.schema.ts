@@ -5,7 +5,7 @@
  */
 
 import { onchainTable, primaryKey } from "ponder";
-import { TOKENS } from "./src/tokens";
+import { TOKENS } from "./src/config/tokens";
 
 
 // Function to create token columns
